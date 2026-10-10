@@ -22,9 +22,20 @@ def initialize_database():
                 path TEXT NOT NULL UNIQUE,
                 extension TEXT NOT NULL,
                 size_bytes INTEGER NOT NULL,
-                modified_at REAL NOT NULL
+                modified_at REAL NOT NULL,
+                content TEXT NOT NULL DEFAULT ''
             )
         """)
+        columns = connection.execute(
+            "PRAGMA table_info(files)"
+        ).fetchall()
+        
+        column_names = {column["name"] for column in columns}
+        
+        if "content" not in column_names:
+            connection.execute(
+                "ALTER TABLE files ADD COLUMN content TEXT NOT NULL DEFAULT ''"
+            )
 
         connection.execute("""
             CREATE TABLE IF NOT EXISTS search_roots (
@@ -33,17 +44,40 @@ def initialize_database():
             )
         """)
 
-        connection.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS file_search
-            USING fts5(
-                name,
-                path,
-                content='files',
-                content_rowid='id'
-            )
-        """)
+
+# Check whether the existing FTS5 table has the content column.
+        fts_columns = connection.execute(
+             "PRAGMA table_info(file_search)"
+).fetchall()
+
+        fts_column_names = {
+    column["name"] for column in fts_columns
+}
+
+        if "content" not in fts_column_names:
+    # Remove the old search index, not the files table.
+            connection.execute("DROP TABLE IF EXISTS file_search")
+
+            connection.execute("""
+        CREATE VIRTUAL TABLE file_search
+        USING fts5(
+            name,
+            path,
+            content,
+            content='files',
+            content_rowid='id'
+        )
+    """)
+
+    # Populate the new index from existing file records.
+            connection.execute("""
+        INSERT INTO file_search(file_search)
+        VALUES ('rebuild')
+    """)
 
     print(f"Database ready: {DB_PATH}")
+    
+    
 def search_files(query: str, limit: int = 20, extension: str | None = None):
     fts_query = query.strip()
 

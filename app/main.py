@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-
+from app.content_extractor import extract_text
 
 from app.database import (
     add_search_root,
@@ -36,6 +36,16 @@ def index_folder(root_path: str):
 
     with get_connection() as connection:
         for file_data in scan_files(str(root)):
+            file_path = Path(file_data['path'])
+          
+            try:
+               content = extract_text(file_path)
+            except OSError as error:
+               print(f"Could not found {file_path}:{error}")
+               content = ""
+            if content is None:
+              content=""
+        
             connection.execute(
                 """
                 INSERT INTO files (
@@ -43,22 +53,29 @@ def index_folder(root_path: str):
                     path,
                     extension,
                     size_bytes,
-                    modified_at
+                    modified_at,
+                    content
                 )
                 VALUES (
                     :name,
                     :path,
                     :extension,
                     :size_bytes,
-                    :modified_at
+                    :modified_at,
+                    :content
                 )
                 ON CONFLICT(path) DO UPDATE SET
                     name = excluded.name,
                     extension = excluded.extension,
                     size_bytes = excluded.size_bytes,
-                    modified_at = excluded.modified_at
+                    modified_at = excluded.modified_at,
+                    content = excluded.content
                 """,
-                file_data,
+                {
+                     **file_data,
+                     "content":content,
+                },
+               
             )
             current_files.add(file_data["path"])
             indexed += 1
